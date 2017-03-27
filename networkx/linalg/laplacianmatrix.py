@@ -244,6 +244,121 @@ def directed_laplacian_matrix(G, nodelist=None, weight='weight',
 
     return I  - (Q + Q.T) /2.0
 
+@not_implemented_for('undirected')
+@not_implemented_for('multigraph')
+def directed_combinatorial_laplacian_matrix(G, nodelist=None, weight='weight',
+                              walk_type=None, alpha=0.95):
+    r"""Return the directed Laplacian matrix of G.
+
+    The graph directed Laplacian is the matrix
+
+    .. math::
+
+		L = \Phi - (\Phi P + P^T \Phi) / 2
+
+    where `P` is the transition matrix of the graph,
+    and `\Phi` a matrix with the Perron vector of `P` in the diagonal and
+    zeros elsewhere.
+
+    Depending on the value of walk_type, `P` can be the transition matrix
+    induced by a random walk, a lazy random walk, or a random walk with
+    teleportation (PageRank).
+
+    Parameters
+    ----------
+    G : DiGraph
+       A NetworkX graph
+
+    nodelist : list, optional
+       The rows and columns are ordered according to the nodes in nodelist.
+       If nodelist is None, then the ordering is produced by G.nodes().
+
+    weight : string or None, optional (default='weight')
+       The edge data key used to compute each value in the matrix.
+       If None, then each edge has weight 1.
+
+    walk_type : string or None, optional (default=None)
+       If None, `P` is selected depending on the properties of the
+       graph. Otherwise is one of 'random', 'lazy', or 'pagerank'
+
+    alpha : real
+       (1 - alpha) is the teleportation probability used with pagerank
+
+    Returns
+    -------
+    L : NumPy array
+      Directed Laplacian of G.
+
+    Raises
+    ------
+    NetworkXError
+        If NumPy cannot be imported
+
+    NetworkXNotImplemnted
+        If G is not a DiGraph
+
+    Notes
+    -----
+    Only implemented for DiGraphs
+
+    See Also
+    --------
+    laplacian_matrix
+
+    References
+    ----------
+    .. [1] Fan Chung (2005).
+       Laplacians and the Cheeger inequality for directed graphs.
+       Annals of Combinatorics, 9(1), 2005
+    """
+    import scipy as sp
+    from scipy.sparse import identity, spdiags, linalg
+    if walk_type is None:
+        if nx.is_strongly_connected(G):
+            if nx.is_aperiodic(G):
+                walk_type = "random"
+            else:
+                walk_type = "lazy"
+        else:
+            walk_type = "pagerank"
+
+    M = nx.to_scipy_sparse_matrix(G, nodelist=nodelist, weight=weight,
+                                  dtype=float)
+    n, m = M.shape
+    if walk_type in ["random", "lazy"]:
+        DI = spdiags(1.0/sp.array(M.sum(axis=1).flat), [0], n, n)
+        if walk_type == "random":
+            P =  DI * M
+        else:
+            I = identity(n)
+            P = (I + DI * M) / 2.0
+
+    elif walk_type == "pagerank":
+        if not (0 < alpha < 1):
+            raise nx.NetworkXError('alpha must be between 0 and 1')
+        # this is using a dense representation
+        M = M.todense()
+        # add constant to dangling nodes' row
+        dangling = sp.where(M.sum(axis=1) == 0)
+        for d in dangling[0]:
+            M[d] = 1.0 / n
+        # normalize
+        M = M / M.sum(axis=1)
+        P = alpha * M + (1 - alpha) / n
+    else:
+        raise nx.NetworkXError("walk_type must be random, lazy, or pagerank")
+
+    evals, evecs = linalg.eigs(P.T, k=1)
+    v = evecs.flatten().real
+    p =  v / v.sum()
+    Phi = spdiags(p, [0], n, n)
+
+    return Phi  - (Phi*P + P.T*Phi) /2.0
+  
+  
+  
+  
+  
 # fixture for nose tests
 def setup_module(module):
     from nose import SkipTest
